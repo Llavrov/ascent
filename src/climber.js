@@ -505,7 +505,7 @@ export function createClimber(G) {
   const LIMBS = [1, -1, -1, 1].map((s, i) => (i % 2 === 0
     ? { hand: true, s, along: 0.9, lat: 0.24, lift: 0.22, tool: kit(axeGeo), sh: 0, fist: kit(mitten(s)), fd: V() }
     : { hand: false, s, along: -0.56, lat: 0.16, lift: 0.12 })); // ступня встаёт на 0.4 м ниже таза и уходит до 0.75
-  LIMBS.forEach((L, i) => { L.from = V(); L.to = V(); L.cur = V(); L.j0 = V(); L.j1 = V(); L.t0 = -9; L.dur = MOVE; L.k = 1; L.u = 1; L.tp = V(); L.td = V(); L.tq = Q(); L.tset = false; L.st = L.hand ? STRIDE : STRIDE / 2; L.phase = (SEQ.indexOf(i) * STRIDE) / 6 + L.along + L.st * 0.55; });
+  LIMBS.forEach((L, i) => { L.from = V(); L.to = V(); L.cur = V(); L.j0 = V(); L.j1 = V(); L.j2 = V(); L.j3 = V(); L.t0 = -9; L.dur = MOVE; L.k = 1; L.u = 1; L.tp = V(); L.td = V(); L.tq = Q(); L.tset = false; L.st = L.hand ? STRIDE : STRIDE / 2; L.phase = (SEQ.indexOf(i) * STRIDE) / 6 + L.along + L.st * 0.55; });
 
   // Голова вырезана из подробной версии того же человека (tools/extract-head.mjs) и ездит за шеей как жёсткая деталь.
   const NEW = !new URLSearchParams(location.search).has('old'); // адрес с ?old показывает прежнее тело, для сравнения
@@ -1120,6 +1120,7 @@ export function createClimber(G) {
         }
         L.j0.copy(_s); L.j1.copy(_j); // бедро от таза до колена: об него стукается железо на поясе
         _e.subVectors(_t, _j).setLength(R.l2 * k).add(_j);
+        L.j2.copy(_e); L.j3.copy(_e).addScaledVector(_bf, 0.1).addScaledVector(_bu, -0.06); // лодыжка и носок: их обходит верёвка
         drive(R.up, _hinge, _a.subVectors(_j, _s), rig.hips.q);
         drive(R.low, _hinge, _a.subVectors(_e, _j), R.up.q);
         drive(R.end, _a.crossVectors(_bu, _bf), _bf, R.low.q);
@@ -1153,7 +1154,10 @@ export function createClimber(G) {
     // Верёвка от узла на обвязке до последнего крюка: цепочка точек с весом, лежит на склоне, с запасом на провис.
     // Ветер треплет её порывами, каждое звено по-своему. В срыве она провисает и хлещет, потом натягивается.
     _a.copy(hips).addScaledVector(back, -0.17).addScaledVector(torso, -0.03); // узел спереди, верёвка уходит вниз между ног
-    const last = anchors[anchors.length - 1].p, link = (_a.distanceTo(last) * (st.fall > 1.1 ? 1 : 1.1)) / (HEAD - 1); // длина звена с запасом на провис
+    // Первые восемь звеньев короткие, по 12 см: у ног верёвке нужно много точек, чтобы обойти бедро, голень и ботинок.
+    // С равными звеньями по полметра и больше она шла от обвязки по прямой сквозь ногу.
+    const last = anchors[anchors.length - 1].p, total = _a.distanceTo(last) * (st.fall > 1.1 ? 1 : 1.1), NEAR = 8, near = Math.min(0.12, total / (HEAD - 1)); // длина с запасом на провис
+    const far = (total - NEAR * near) / (HEAD - 1 - NEAR), linkAt = (i) => (i < NEAR ? near : far);
     if (ropeTo !== last || RP[0].p.distanceTo(_a) > 3) { ropeTo = last; RP.forEach((r, i) => { r.p.lerpVectors(_a, last, i / (HEAD - 1)); r.q.copy(r.p); }); }
     for (let i = 1; i < HEAD - 1; i++) {
       const r = RP[i], lying = r.p.y - height(r.p.x, r.p.z) < 0.05, gust = 0.5 + 0.9 * (0.5 + 0.5 * Math.sin(st.tg * 2.3 + i * 0.9) * Math.sin(st.tg * 0.7 + i * 0.31));
@@ -1163,8 +1167,17 @@ export function createClimber(G) {
     for (let it = 0; it < 5; it++) {
       RP[0].p.copy(_a); RP[HEAD - 1].p.copy(last);
       for (let i = 0; i < HEAD - 1; i++) {
-        const a = RP[i].p, b = RP[i + 1].p, d = _b.subVectors(b, a).length() || 1e-6, k = ((d - link) / d) * 0.5;
+        const a = RP[i].p, b = RP[i + 1].p, d = _b.subVectors(b, a).length() || 1e-6, k = ((d - linkAt(i)) / d) * 0.5;
         if (i > 0) a.addScaledVector(_b, k); if (i < HEAD - 2) b.addScaledVector(_b, -k);
+      }
+      // верёвка не проходит сквозь ноги: точки у тела выталкиваются из бедра, голени и ботинка
+      if (rig && st.fall <= 0) for (let i = 1; i <= NEAR + 2; i++) for (const L of LIMBS) if (!L.hand) {
+        for (const [p0, p1, r] of [[L.j0, L.j1, 0.13], [L.j1, L.j2, 0.1], [L.j2, L.j3, 0.09]]) {
+          const p = RP[i].p; _d.subVectors(p1, p0);
+          _b.copy(p0).addScaledVector(_d, Math.min(1, Math.max(0, _p.subVectors(p, p0).dot(_d) / (_d.lengthSq() || 1))));
+          const gap = _p.subVectors(p, _b).length();
+          if (gap < r) p.copy(_b).addScaledVector(gap > 1e-4 ? _p : right, gap > 1e-4 ? r / gap : r);
+        }
       }
     }
     for (let i = 0; i < HEAD; i++) { const r = RP[i].p; if (i > 0) r.y = Math.max(r.y, height(r.x, r.z) + 0.03); ropePts.set([r.x, r.y, r.z], i * 3); }

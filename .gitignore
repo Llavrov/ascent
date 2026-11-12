@@ -1,0 +1,7 @@
+node_modules
+dist
+voice-raw
+ref/meshy/
+shots/
+*.log
+.DS_Store

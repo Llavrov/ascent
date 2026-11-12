@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Озвучка</title>
+<style>
+  :root { color-scheme: dark; --bg: #14161a; --ink: #f2f3f5; --mute: #9aa0a8; --line: #3a3e46; --panel: #23262c; --red: #d3381f; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); }
+  body { color: var(--ink); font: 16px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+  main {
+    min-height: 100dvh; max-width: 520px; margin: 0 auto; display: flex; flex-direction: column;
+    padding: calc(20px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  }
+  button { all: unset; box-sizing: border-box; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  #count { color: var(--mute); font-size: 14px; font-variant-numeric: tabular-nums; }
+  h1 { margin: 2px 0 0; font-size: 18px; font-weight: 600; }
+  #say { margin: 22px 0 0; font-size: clamp(30px, 9vw, 40px); line-height: 1.12; font-weight: 650; letter-spacing: -.015em; text-wrap: balance; }
+  #how { margin: 12px 0 0; color: var(--mute); text-wrap: pretty; }
+  #takes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+  .take { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; border: 1px dashed var(--line); color: #646a73; font-variant-numeric: tabular-nums; }
+  button.take { border: 1px solid transparent; background: var(--panel); color: var(--ink); }
+  button.take.sel { border-color: var(--ink); }
+  #del { height: 44px; margin-top: 8px; padding: 0 14px; align-self: flex-start; display: flex; align-items: center; border-radius: 12px; background: var(--panel); font-size: 15px; }
+  #del.off { visibility: hidden; }
+  .mid { flex: 1; min-height: 150px; padding: 12px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+  #rec {
+    width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center; background: var(--red);
+    box-shadow: 0 0 0 calc(var(--lvl, 0) * 22px) rgba(211, 56, 31, .3); transition: box-shadow .08s linear; /* кольцо растёт от громкости: видно, что микрофон слышит */
+  }
+  #rec:active { transform: scale(.97); }
+  #rec .stop, #rec.live .mic { display: none; }
+  #rec.live .stop { display: block; }
+  #note { min-height: 24px; color: var(--mute); font-size: 15px; text-align: center; font-variant-numeric: tabular-nums; }
+  #note.bad { color: #ff9c8a; }
+  nav { display: flex; gap: 8px; }
+  nav button { flex: 1; height: 48px; border-radius: 12px; background: var(--panel); text-align: center; font-weight: 500; }
+  nav button:disabled { opacity: .35; cursor: default; }
+</style>
+</head>
+<body>
+<main>
+  <div id="count"></div>
+  <h1 id="title"></h1>
+  <p id="say"></p>
+  <p id="how"></p>
+  <div id="takes"></div>
+  <button id="del" class="off"></button>
+  <div class="mid">
+    <button id="rec" aria-label="Записать">
+      <svg class="mic" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3" fill="#fff" stroke="none"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      <svg class="stop" viewBox="0 0 24 24" width="30" height="30"><rect x="5" y="5" width="14" height="14" rx="3" fill="#fff"/></svg>
+    </button>
+    <div id="note" aria-live="polite"></div>
+  </div>
+  <nav>
+    <button id="prev">Назад</button>
+    <button id="next">Дальше</button>
+  </nav>
+</main>
+<script type="module">
+// Реплики: ситуация в сцене (её имя стоит в src/main.js), заголовок, что сказать, как сказать, сколько дублей хочется.
+const LINES = [
+  ['effort', 'Вбивает ледоруб', 'Кх!', 'Короткий выдох с усилием, как при ударе. Все дубли разные: «кх», «хх», «ых».', 5],
+  ['hard', 'Тяжело', 'Фу-ух… тяжело.', 'На выдохе, устало, себе под нос.', 3],
+  ['lost', 'Нет сил', 'Не могу… сил нет.', 'Тихо, дыхание сбито, почти шёпотом.', 3],
+  ['go', 'Собрался и пошёл', 'Давай. Ещё чуть-чуть.', 'Сквозь зубы, зло, сам себе.', 3],
+  ['good', 'Встегнул верёвку', 'Есть. Держит.', 'Коротко, с облегчением.', 3],
+  ['brace', 'Идёт лавина', 'Лавина! Держись…', 'Первое слово криком, второе себе, вжимаясь в склон.', 3],
+  ['fall', 'Сорвался', 'А-а-а!', 'Крик на секунду-полторы, пока летит. Слова любые.', 3],
+  ['jerk', 'Верёвка поймала', 'Кхх!', 'Удар выбил воздух: глухо, животом, без слов.', 3],
+  ['after', 'Висит после срыва', 'Живой… живой.', 'Со стоном, тяжело дыша, голос дрожит.', 3],
+];
+const $ = (id) => document.getElementById(id);
+const nb = (s) => s.replace(/(^|\s)([а-яё]{1,2})\s/gi, '$1$2 '); // короткое слово не остаётся в конце строки
+const HINT = matchMedia('(hover: hover)').matches ? 'Пробел: запись, стрелки: листать' : '';
+let i = Math.min(LINES.length, Math.max(1, parseInt(location.hash.slice(1)) || 1)) - 1;
+let takes = {}, sel = null, rec = null, stream = null, meter = null, player = null, busy = false, t0 = 0;
+
+const note = (text, bad = false) => { $('note').textContent = text || HINT; $('note').classList.toggle('bad', bad); };
+const play = (file) => { player?.pause(); player = new Audio('/voice/' + file); player.play().catch(() => {}); };
+
+function render() {
+  const [id, title, say, how, want] = LINES[i], list = takes[id] ?? [];
+  if (!list.includes(sel)) sel = null;
+  history.replaceState(null, '', '#' + (i + 1));
+  $('count').textContent = `${i + 1} из ${LINES.length}`;
+  $('title').textContent = title; $('say').textContent = nb(say); $('how').textContent = nb(how);
+  $('takes').replaceChildren(...Array.from({ length: Math.max(want, list.length) }, (_, k) => {
+    const f = list[k], el = document.createElement(f ? 'button' : 'span');
+    el.className = 'take' + (f === sel && f ? ' sel' : ''); el.textContent = k + 1;
+    if (f) { el.setAttribute('aria-label', `Послушать дубль ${k + 1}`); el.onclick = () => { sel = f; play(f); render(); }; }
+    return el;
+  }));
+  $('del').classList.toggle('off', !sel);
+  $('del').textContent = `Удалить дубль ${list.indexOf(sel) + 1}`;
+  $('prev').disabled = i === 0;
+  $('next').textContent = i === LINES.length - 1 ? 'В сцену' : 'Дальше';
+}
+
+function level() {
+  if (!meter) { const c = new AudioContext(), a = c.createAnalyser(); c.createMediaStreamSource(stream).connect(a); meter = { a, d: new Float32Array(a.fftSize) }; }
+  const tick = () => {
+    if (!rec) return $('rec').style.removeProperty('--lvl');
+    meter.a.getFloatTimeDomainData(meter.d);
+    let s = 0;
+    for (const x of meter.d) s += x * x;
+    $('rec').style.setProperty('--lvl', Math.min(1, Math.sqrt(s / meter.d.length) * 6).toFixed(2));
+    note(`0:${String(Math.floor((performance.now() - t0) / 1000)).padStart(2, '0')}`);
+    requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+async function toggle() {
+  if (busy) return;
+  if (rec) return rec.stop();
+  // без шумодава и автогромкости: они съедают выдохи и качают громкость на крике
+  try { stream ??= await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); }
+  catch { return note('Нет доступа к микрофону. Разреши его в адресной строке.', true); }
+  player?.pause();
+  const chunks = [], id = LINES[i][0], r = rec = new MediaRecorder(stream);
+  const cap = setTimeout(() => r.state === 'recording' && r.stop(), 10000); // дубль длиннее десяти секунд здесь не нужен
+  r.ondataavailable = (e) => chunks.push(e.data);
+  r.onstop = () => { rec = null; clearTimeout(cap); $('rec').classList.remove('live'); $('rec').setAttribute('aria-label', 'Записать'); save(id, new Blob(chunks, { type: r.mimeType })); };
+  r.start(); t0 = performance.now();
+  $('rec').classList.add('live'); $('rec').setAttribute('aria-label', 'Остановить');
+  level();
+}
+
+async function save(id, blob) {
+  busy = true; note('Сохраняю…');
+  try {
+    const r = await fetch('/api/voice?kind=' + id, { method: 'POST', body: blob, headers: { 'content-type': blob.type || 'audio/webm' } }), j = await r.json();
+    if (r.status === 422) note('Ничего не слышно. Проверь, тот ли микрофон выбран.', true);
+    else if (!r.ok) note('Не сохранилось. Запиши ещё раз.', true);
+    else { takes = j.takes; sel = j.file; note(''); play(j.file); } // сразу играет очищенный дубль: слышно то, что попадёт в сцену
+  } catch { note('Не сохранилось. Запиши ещё раз.', true); }
+  busy = false; render();
+}
+
+const go = (d) => { const k = i + d; if (k < 0) return; if (k >= LINES.length) return void (location.href = '/'); i = k; sel = null; render(); };
+$('rec').onclick = toggle;
+$('prev').onclick = () => go(-1);
+$('next').onclick = () => go(1);
+$('del').onclick = async () => {
+  const r = await fetch('/api/voice?file=' + sel, { method: 'DELETE' });
+  if (r.ok) takes = (await r.json()).takes;
+  render();
+};
+addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) toggle(); }
+  if (e.code === 'ArrowRight' && i < LINES.length - 1) go(1);
+  if (e.code === 'ArrowLeft') go(-1);
+});
+addEventListener('keyup', (e) => { if (e.code === 'Space') e.preventDefault(); }); // иначе пробел ещё и нажмёт кнопку в фокусе
+addEventListener('pagehide', () => stream?.getTracks().forEach((t) => t.stop()));
+
+note('');
+render();
+takes = (await (await fetch('/api/voice')).json()).takes;
+render();
+</script>
+</body>
+</html>

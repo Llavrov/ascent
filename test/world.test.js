@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { height, routeX, normalAt, sAt, zAt, START_Z, TOP_Z, EXTENT } from '../src/world.js';
+import { height, routeX, normalAt, sAt, zAt, START_Z, TOP_Z, EXTENT, slump, SLUMP_P } from '../src/world.js';
 
 test('высота конечна по всему миру', () => {
   for (let x = -EXTENT; x <= EXTENT; x += 160) for (let z = -EXTENT; z <= EXTENT; z += 160) {
@@ -27,4 +27,16 @@ test('нормаль единичная и смотрит от склона вв
 test('длина пути и обратный пересчёт сходятся, путь растёт вверх по склону', () => {
   for (let z = START_Z; z >= TOP_Z; z -= 7.3) assert.ok(Math.abs(zAt(sAt(z)) - z) < 1e-3, `z=${z}`);
   assert.ok(sAt(TOP_Z) - sAt(START_Z) > START_Z - TOP_Z);
+});
+
+test('обрушение следа не выходит за свой отрезок пути и случается примерно в половине отрезков', () => {
+  let on = 0;
+  for (let S = 0; S < 2000; S++) {
+    const { on: o, cy, len } = slump(S);
+    if (!o) continue;
+    on++;
+    // шейдер смотрит только отрезок, в котором лежит точка: жёлоб с кучей комьев (ещё 0.3 м вниз) должен помещаться в него целиком
+    assert.ok(cy - len - 0.3 >= S * SLUMP_P && cy + len <= (S + 1) * SLUMP_P, `отрезок ${S}: ${cy} ± ${len}`);
+  }
+  assert.ok(on > 900 && on < 1300, `обрушений: ${on} из 2000`);
 });

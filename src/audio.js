@@ -4,6 +4,7 @@
 export function createAudio() {
   let ctx = null, out, src, air, side, wet, hitBus, ringBus, voiceBus, rev, white, pink, wind, breath, on = false, lastKnock = 0;
   const voice = {}, said = {}; // реплики: готовые дубли по ситуациям; когда и какой дубль звучал последним
+  const WORDS = /^(hard|lost|go|good|brace|after)$/;
   let talk = null, talkEnd = 0; // что звучит сейчас и до какого времени: две реплики разом не говорим
   const rnd = (a, b) => a + Math.random() * (b - a);
   // d: время до полной тишины; на слух звук примерно втрое короче
@@ -160,6 +161,7 @@ export function createAudio() {
     // Реплика альпиниста: случайный дубль ситуации, не тот же, что в прошлый раз. Нет дублей, молчит.
     // gap: сколько секунд должно пройти после прошлой реплики; кряхтение на ударах считается отдельно от слов.
     say(kind, gap = 7, vol = 1) {
+      if (WORDS.test(kind)) return; // Лёва 12.11.2026: реплики со словами пока убраны, остаются кряхтение, рывок и крик при срыве. Записи лежат на месте
       const list = voice[kind], key = kind === 'effort' ? kind : 'line', now = performance.now();
       if (!on || !list?.length || now - (said[key] ?? -1e9) < gap * 1000) return;
       said[key] = now;

@@ -134,3 +134,7 @@ export function zAt(s) {
   return Z_FOOT - (lo + Math.min(1, Math.max(0, (s - S_TAB[lo]) / (S_TAB[hi] - S_TAB[lo])))) * DZ;
 }
 
+// Обрушения следа: путь поделён на отрезки по SLUMP_P метров, примерно в половине из них ступени съезжают жёлобом.
+// cy: середина жёлоба на пути, len: половина его длины. Те же числа стоят в printDepth (terrain.js); жёлоб с кучей комьев не выходит за свой отрезок.
+export const SLUMP_P = 2.6;
+export function slump(S) { const h = S * 0.618034 - Math.floor(S * 0.618034); return { on: h > 0.45, cy: (S + 0.5) * SLUMP_P + (h - 0.7) * 0.5, len: 0.4 + 0.4 * h }; }

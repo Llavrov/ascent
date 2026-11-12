@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { EXTENT, FINE, height, base, sAt, routeX, vnoise, smooth } from './world.js';
+import { EXTENT, FINE, height, base, sAt, routeX, vnoise, smooth, SLUMP_P } from './world.js';
 import { COMMON } from './glsl.js';
 
 const NEAR = { x: 0, z: 140, half: 330 }; // вокруг маршрута тени и складки считаются подробнее
@@ -237,21 +237,31 @@ float liftG(vec2 xz){ return fieldG(xz).g; }
 uniform vec3 uLampPos, uLampDir, uClimber;
 uniform vec4 uAva;     // x, z кромки отрыва, ширина, сколько прошёл фронт
 uniform vec4 uPlanted; // где на пути стоит последний след каждой конечности: пр. рука, лев. нога, лев. рука, пр. нога
-uniform float uLampI, uAvaFade, uPix, uDrift, uSpin, uSpark;
+uniform float uLampI, uAvaFade, uPix, uDrift, uSpin, uSpark, uSlide; // uSlide: верхняя ступень, догоняемая плавно: по ней съезжают обрушения следа
 uniform vec2 uWind2;
 uniform sampler2D tShadow; uniform mat4 uShadowM; // силуэт альпиниста, снятый со стороны солнца
 uniform sampler2D tRock, tSnow; // снимок скалы и карта рельефа снега
 
 ${FIELD}
-// Глубина следа в точке q (x: метры поперёк маршрута, y: метры пути). Ступени выбиты носком: у верхнего края глубже,
-// край ломаный, между ступенями взрытая борозда. Каждая ступень чуть сдвинута, повёрнута и своего размера;
-// те же сдвиги считает climber.js, чтобы нога попадала в свою ямку.
+// Глубина следа в точке q (x: метры поперёк маршрута, y: метры пути). По глубокому снегу на крутом склоне лезут так: коленом и голенью
+// приминают снег, потом встают в этот отпечаток. Поэтому от каждой ноги идёт колея с ямками ступеней и вмятинами коленей между ними,
+// посередине борозда от тела, у ледорубов отпечатки кулаков. Местами перемычка между колеями осыпалась и всё слилось в одно корыто,
+// а раз в несколько метров ступени не выдержали и съехали вниз жёлобом. Сдвиги ступеней те же, что в climber.js.
+#define LUMP(p) (vnoise((p) * 13.) + .6 * vnoise((p) * 29. + 3.))
 float printDepth(vec2 q){
   q.x -= .2 * sin(q.y * .83) + .1 * sin(q.y * 2.1 + 1.); // тропа петляет
-  float top = max(uPlanted.y, uPlanted.w);
-  float d = .03 * smoothstep(.42, .12, abs(q.x)) * smoothstep(top + .2, top - .3, q.y) * (.6 + .8 * vnoise(q * vec2(9., 3.)));
+  float top = max(uPlanted.y, uPlanted.w), ax = abs(q.x);
+  float n9 = vnoise(q * vec2(9., 3.)), n16 = vnoise(q * 16.), n23 = vnoise(q * 23.); // шумы общие на точку: раньше считались заново в каждой ступени
+  float merged = smoothstep(.4, .65, vnoise(vec2(q.y * .6, 7.))); // здесь колеи слились в одно корыто
+  // Борозда с плоским дном и крутыми обломанными бортами: пологая ложбина читалась как тень, а не как выемка.
+  float w = .3 + .08 * merged + (n9 - .5) * .14 + (n16 - .5) * .03;
+  float d = mix(.04, .065, merged) * smoothstep(w + .05, w - .05, ax) * smoothstep(top + .2, top - .3, q.y) * (.85 + .3 * n9);
   for (int i = 0; i < 2; i++){
     float sd = i == 0 ? -1. : 1., foot = i == 0 ? uPlanted.y : uPlanted.w, axe = i == 0 ? uPlanted.z : uPlanted.x;
+    // Колея от голени идёт через свои ступени, вмятина колена лежит посередине между двумя соседними. Колени давят по-разному: kv.
+    float Kc = (q.y - foot) / .3 + floor(foot / .3 + .5), kv = .5 + .5 * sin(floor(Kc) * 3.7 + sd * 1.3);
+    d += smoothstep(.1, .035, abs(q.x - sd * .16 - .09 * sin(Kc * 2.399 + sd)))
+      * (.02 + .03 * kv * smoothstep(.3, .05, abs(fract(Kc) - .5))) * (1. - .5 * merged) * smoothstep(foot, foot - .25, q.y);
     for (int j = 0; j < 2; j++){ // ступени через .3 м стоят теснее своей длины: смотрим обе соседние, иначе край ступени обрезается
     float k = min(floor((q.y - foot) / .3) + float(j), 0.), K = floor(foot / .3 + .5) + k;
     vec2 c = vec2(sd * .16 + .09 * sin(K * 2.399 + sd), foot + k * .3 + .05 * sin(K * 1.713 + 2. * sd));
@@ -260,14 +270,26 @@ float printDepth(vec2 q){
     // Ступени разные: одна держит форму, другая осыпалась. Осыпавшаяся шире, мельче, с рваным краем,
     // и из-под неё вниз по склону уходит язык вывалившегося снега.
     float cr = .5 + .5 * sin(K * 5.7 + sd * 2.);
-    float e = pow(pow(abs(l.x), 3.) + pow(abs(l.y), 3.), .3333) + (vnoise(q * 16.) - .5) * mix(.1, .28, cr);
+    float e = pow(pow(abs(l.x), 3.) + pow(abs(l.y), 3.), .3333) + (n16 - .5) * mix(.1, .28, cr);
     // Ямка чашей: от края плавно вглубь, без плоского дна и отвесных стенок (с ними след выглядел вырезанным формочкой).
-    float bowl = max(1. - e * e, 0.), step_ = bowl * sqrt(bowl) * mix(.13, .075, cr) * (.75 + .35 * l.y);
-    float tongue = smoothstep(1.1, .3, abs(l.x) * (1. + max(-l.y - 1., 0.) * .8) + (vnoise(q * 23.) - .5) * .5) * smoothstep(-3.4, -1.3, l.y) * smoothstep(-.6, -1.1, l.y) * .022 * cr;
+    float bowl = max(1. - e * e, 0.), step_ = bowl * sqrt(bowl) * mix(.17, .1, cr) * (.75 + .35 * l.y);
+    float tongue = smoothstep(1.1, .3, abs(l.x) * (1. + max(-l.y - 1., 0.) * .8) + (n23 - .5) * .5) * smoothstep(-3.4, -1.3, l.y) * smoothstep(-.6, -1.1, l.y) * .022 * cr;
     d = max(d, max(step_, tongue));
     }
-    float ka = min(floor((q.y - axe) / .6 + .5), 0.);
-    d = max(d, .08 * smoothstep(1., .5, length((q - vec2(sd * .24, axe + ka * .6)) / .04)));
+    // Дырка от клюва ледоруба и под ней вмятина от кулака и предплечья.
+    vec2 ha = q - vec2(sd * .24, axe + min(floor((q.y - axe) / .6 + .5), 0.) * .6);
+    d = max(d, max(.08 * smoothstep(1., .5, length(ha / .04)), .03 * smoothstep(1., .3, length((ha + vec2(0., .1)) / vec2(.07, .12)))));
+  }
+  // Обрушение (те же числа в slump() из world.js): когда альпинист ушёл на метр выше, ступени съезжают вниз. Остаётся гладкий жёлоб
+  // с резкой дугой отрыва сверху и кучей комьев снизу. front: сколько метров от дуги уже съехало.
+  float S = floor(q.y / ${SLUMP_P}), h = fract(S * .618034), len = .4 + .4 * h, yy = q.y - (S + .5) * ${SLUMP_P} - (h - .7) * .5, front = (uSlide - q.y + yy - len - 1.) * 5.;
+  if (h > .45 && front > 0.){
+    float wc = .3 + .05 * sin(yy * 3. + S);
+    float c = smoothstep(0., .035, len - 1.8 * ax * ax + (n16 - .5) * .05 - yy) * smoothstep(-len - .05, -len + .25, yy)
+      * smoothstep(wc + .05, wc - .05, ax + (n9 - .5) * .08) * smoothstep(len - front, len - front + .15, yy);
+    d = mix(d, .1 * (1. - .4 * ax * ax / (wc * wc)) * (.85 + .3 * n9), c);
+    float pile = smoothstep(-len + .35, -len, yy) * smoothstep(-len - .3, -len - .1, yy) * smoothstep(.4, .22, ax) * smoothstep(2. * len - .3, 2. * len + .1, front);
+    d *= 1. - pile * (.45 + .5 * smoothstep(.2, .8, n16));
   }
   return d;
 }
@@ -342,15 +364,19 @@ void main(){
   // дальняя стенка закрывает ближнюю, а солнце кладёт внутрь тень.
   float pdep = 0., psh = 1.; vec2 pg = vec2(0.);
   if (abs(u) < .8 && px < .08 && vS < max(uPlanted.y, uPlanted.w) + .5){
-    vec3 vt = vec3(dot(V, Hx), dot(V, T), max(dot(V, N), .12));
+    vec3 vt = vec3(dot(V, Hx), dot(V, T), max(dot(V, N), .3)); // под скользящим углом луч считаем круче, чем он есть: иначе шаг длиннее ямки и дно идёт штриховкой
     // Шаги луча начинаются со случайного сдвига, а точка удара уточняется между двумя последними шагами:
     // без этого дно ямки распадается на слои и выглядит штриховкой.
-    vec2 q = vec2(u, vS); float stp = .14 / vt.z / 24., t = stp * .5, d0 = 0., d1 = 0.; // без случайного сдвига: он давал зерно по краю и дну следа
+    vec2 q = vec2(u, vS); float stp = .2 / vt.z / 24., t = stp * .5, d0 = 0., d1 = 0.; // без случайного сдвига: он давал зерно по краю и дну следа
     for (int i = 0; i < 24; i++){ d1 = printDepth(q - vt.xy * t) - t * vt.z; if (d1 <= 0.) break; d0 = d1; t += stp; }
     if (d1 <= 0. && d0 > 0.) t -= stp * -d1 / (d0 - d1);
     q -= vt.xy * t; pdep = printDepth(q);
     vec2 e = vec2(.012, 0.);
     pg = vec2(printDepth(q + e.xy) - printDepth(q - e.xy), printDepth(q + e.yx) - printDepth(q - e.yx)) / .024;
+    // В следе снег взрыт комьями, вокруг гладкий. Наклон комьев считаем по соседним точкам дна, а не через соседние пиксели:
+    // на краях ямок соседний пиксель смотрит на другое дно, и свет шёл рябью точек. Издали комья гаснут: мельче пикселя они рябят.
+    float lw = smoothstep(.004, .03, pdep) * smoothstep(.014, .005, px);
+    if (lw > 0.) pg -= lw * vec2(LUMP(q + e.xy) - LUMP(q - e.xy), LUMP(q + e.yx) - LUMP(q - e.yx)) * (.02 / .024);
     vec3 lt = vec3(dot(uSunDir, Hx), dot(uSunDir, T), dot(uSunDir, N));
     for (int i = 1; i <= 6; i++){ float tt = float(i) * .035; psh = min(psh, 1. - smoothstep(0., .03, pdep - lt.z * tt - printDepth(q + lt.xy * tt))); }
     float keep = (1. - scour) * smoothstep(.08, .04, px) * (1. - .85 * max(iceP, rockP)); // на льду и камне остаются только царапины

@@ -26,7 +26,7 @@ const G = {
   uFogCol: u(new THREE.Color()), uFogSun: u(new THREE.Color()), uSkyZen: u(new THREE.Color()),
   uFogDen: u(0), uSeaDen: u(0), uSeaY: u(150), uSeaH: u(70), uTime: u(0), uExtent: u(EXTENT), tBake: u(null), tBakeN: u(null), uNear: u(V()),
   uLampPos: u(V()), uLampDir: u(V(0, 0, -1)), uLampI: u(1), uDust: u(0.8), uSpark: u(0),
-  uClimber: u(V()), uPlanted: u(new THREE.Vector4()), tShadow: u(null), uShadowM: u(new THREE.Matrix4()), uAva: u(new THREE.Vector4(0, 0, 0, -1)), uAvaFade: u(0),
+  uClimber: u(V()), uPlanted: u(new THREE.Vector4()), uSlide: u(0), tShadow: u(null), uShadowM: u(new THREE.Matrix4()), uAva: u(new THREE.Vector4(0, 0, 0, -1)), uAvaFade: u(0),
   uPix: u(0.001), uDrift: u(0), uSpin: u(0), uWind2: u(new THREE.Vector2(WIND.x, WIND.z).normalize()),
   uWindOff: u(V()), uWindVel: u(V()), uCamVel: u(V()), uShutter: u(1 / 90), uFlakeA: u(1), uTan: u(0.3), uRes: u(new THREE.Vector2(1, 1)),
   uSunView: u(V()), uStorm: u(1), uCover: u(0.5), uCloudOff: u(new THREE.Vector2()),
@@ -204,6 +204,11 @@ function frame(now) {
     sparks.spawn(_v.copy(climber.pk).addScaledVector(climber.n, 0.1), 4, [7, 4, 1.2], 0.006, 3, 0.2, climber.n);
   }
   if (climber.st.fall > 0 && climber.st.fall < 1.3) puffs.spawn({ x: climber.hips.x + (Math.random() - 0.5) * 0.5, y: 0.15, z: climber.hips.z - 0.7, vx: 0, vy: 1.2, vz: 2.5, size: 0.2, grow: 1.4, life: 0.8, alpha: 0.5, ground: true }); // клювы пашут снег
+  if (climber.st.slump) { // след обрушается: по фронту идёт снежная пыль и катятся комья
+    const p = climber.st.slump;
+    puffs.spawn({ x: p.x, y: 0.1, z: p.z, vx: 0, vy: 0.5, vz: 1, size: 0.14, grow: 0.9, life: 0.5 + Math.random() * 0.4, alpha: 0.4, ground: true });
+    if (Math.random() < 0.06) debris.chunk(p);
+  }
   for (const h of climber.st.hits) { // ледоруб или кошка вошли в склон: в снегу облачко, во льду брызги осколков, о камень искры и пыль
     audio.hit(h.kind, h.hand); if (h.hand && Math.random() < 0.3) audio.say('effort', 2.5, 0.7); // кряхтит не на каждом ударе
     if (h.kind === 0) for (let i = 0; i < 2; i++) debris.chunk(h.p);

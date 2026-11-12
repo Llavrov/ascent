@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { height, routeX, normalAt, sAt, zAt, ground, START_Z } from './world.js';
+import { height, routeX, normalAt, sAt, zAt, ground, START_Z, slump, SLUMP_P } from './world.js';
 import { COMMON } from './glsl.js';
 import { helmet, fitted, rack, mitten, axe } from './gear.js';
 
@@ -770,7 +770,8 @@ export function createClimber(G) {
   };
 
   // s: пройденный путь в метрах, task: секунды с начала страховки (0 нет), strike: в этом кадре ударил по колу
-  const st = { s: sAt(START_Z), z: START_Z, tg: 0, brace: 0, braceK: 0, slip: 0, beat: -1, task: 0, taskK: 0, strike: false,
+  const _slump = V();
+  const st = { slide: 0, slump: null, s: sAt(START_Z), z: START_Z, tg: 0, brace: 0, braceK: 0, slip: 0, beat: -1, task: 0, taskK: 0, strike: false,
     rest: 0, restAt: 9, gap: 12, hits: [], fall: 0, fall0: 0, fallD: 0 }; // fall: секунды с начала срыва // rest: секунды передышки, gap: метров до следующей страховки, hits: удары ледорубов и кошек за кадр
   const base = V(), n = V().set(0, 0.62, 0.78), fwd = V(), right = V(), left = V(), hips = V(), torso = V(), back = V(), look = V();
   const torsoPos = V(), headPos = V(), skull = V(), headUp = V(), lampPos = V(), toe = V(), twist = V();
@@ -908,6 +909,11 @@ export function createClimber(G) {
     let reach = 0, push = 0, lean = 0, swing = 0; // тянется рукой, толкается ногой, переносит вес на опорную ногу; swing: какая рука бьёт
     for (const L of LIMBS) { const w = Math.sin(Math.PI * L.u); if (L.hand) { reach = Math.max(reach, w); swing += L.s * w; } else { push = Math.max(push, w); lean -= L.s * w; } }
     G.uPlanted.value.set(LIMBS[0].planted, LIMBS[1].planted, LIMBS[2].planted, LIMBS[3].planted);
+    // Обрушение следа идёт за верхней ступенью. Она прыгает на целый шаг, поэтому догоняем её плавно: иначе жёлоб появлялся бы рывком.
+    const top = Math.max(LIMBS[1].planted, LIMBS[3].planted), sl = slump(Math.floor(st.slide / SLUMP_P) - 1); // съезжает только отрезок под текущим
+    G.uSlide.value = st.slide = Math.abs(top - st.slide) > 1 ? top : Math.min(top, st.slide + dt * 0.3); // после срыва и на старте встаёт сразу
+    const front = (st.slide - sl.cy - sl.len - 1) * 5;
+    st.slump = sl.on && front > 0 && front < 2 * sl.len + 0.3 && ground(zAt(sl.cy)) === 0 ? surf(sl.cy + sl.len - front, wander(sl.cy) + (Math.random() - 0.5) * 0.4, _slump) : null;
     // Лицо живёт: в пургу щурится сильнее, моргает, стискивает зубы на замахе, на ударе молотком и в срыве.
     if (st.tg > blinkAt) { blink = 0.16; blinkAt = st.tg + 1.5 + Math.random() * 4; }
     blink = Math.max(0, blink - dt);

@@ -118,6 +118,7 @@ uniform sampler2D map; // родная текстура модели: по не�
 #endif
 #ifdef NMAP
 uniform sampler2D nmap; // карта рельефа тела от Meshy: стёжка и складки, снятые с подробной сетки
+uniform sampler2D tMirror; uniform mat4 uMirrorM; uniform float uMirror; // отражение в очках: снимок сцены от лица (main.js)
 // нормаль из карты в мир: оси развёртки берём из производных по экрану, касательные в модели не нужны
 vec3 bent(vec3 N, vec3 p, vec2 uv){
   vec3 t = texture2D(nmap, uv).xyz * 2. - 1., q0 = dFdx(p), q1 = dFdy(p), a = cross(q1, N), b = cross(N, q0);
@@ -259,6 +260,16 @@ void main(){
   col = mix(col, mix(uFogCol, uSkyZen + uAmbCol, smoothstep(-.3, .7, reflect(-V, N).y)) * mix(vec3(1.), alb * 2., .5), gloss * gloss * .6); // металл, пластик и стекло отражают небо
   float rim = pow(clamp(1. - dot(N, V), 0., 1.), 3.); // clamp: pow от отрицательного даёт NaN, свечение разносит его на весь кадр
   col += rim * (alb + .08) * (uAmbCol * .6 + uSunCol * sh * 1.2 * max(dot(-V, uSunDir) + .2, 0.)); // контровой свет окрашен тканью, а не белый
+  #ifdef NMAP
+    // Линза очков зеркальная. Где она на модели: по месту в исходной позе и по голубому цвету в текстуре (оправа и балаклава чёрные).
+    float lens = uMirror * smoothstep(.078, .062, abs(vRest.x)) * smoothstep(1.596, 1.606, vRest.y) * smoothstep(1.678, 1.668, vRest.y) * step(.07, vRest.z)
+      * smoothstep(.0, .06, base.b - base.r) * smoothstep(.3, .45, dot(base, vec3(.333)));
+    if (lens > 0.){
+      vec4 c = uMirrorM * vec4(reflect(-V, N), 0.);
+      vec3 refl = c.w > 0. ? texture2D(tMirror, clamp(c.xy / c.w * .5 + .5, 0., 1.)).rgb : uSkyZen;
+      col = mix(col, refl * vec3(.6, .7, .84) + col * .15, lens * (.6 + .4 * pow(1. - max(dot(N, V), 0.), 3.))); // под скользящим углом отражает сильнее
+    }
+  #endif
   gl_FragColor = vec4(applyFog(col, vW), 1.);
 }`;
 export const litMaterial = (G, color, defines = {}, gloss = 0) =>
@@ -917,12 +928,13 @@ export function createClimber(G) {
     // Между движениями глядит на склон перед собой. Вверх поднимает глаза только изредка на передышке.
     let aim = null;
     for (const L of LIMBS) if (L.u < 1) aim = L.to;
-    if (aim) lookTo.subVectors(aim, headPos).normalize();
+    if (st.gazeUp) lookTo.copy(fwd).multiplyScalar(0.85).addScaledVector(n, -0.5).normalize(); // кадр на очки: поднимает голову к вершине
+    else if (aim) lookTo.subVectors(aim, headPos).normalize();
     else if (tk > 0.5) lookTo.subVectors(pk, headPos).normalize();
     else lookTo.copy(fwd).multiplyScalar(0.45 + (st.rest > 0 ? gaze.y : 0)).addScaledVector(n, -0.85).addScaledVector(right, gaze.x * 0.4).normalize();
     look.lerp(lookTo, 1 - Math.exp(-dt * 3.5)); // голову поворачивает плавно, без рывков
     // шея гнётся как у человека: вверх не больше 37 градусов, вниз 48, в стороны 45
-    const f = Math.max(0.2, -look.dot(back)), up = Math.min(0.75 * f, Math.max(-1.1 * f, look.dot(torso))), side = Math.min(f, Math.max(-f, look.dot(right)));
+    const f = Math.max(0.2, -look.dot(back)), up = Math.min((st.gazeUp ? 1.3 : 0.75) * f, Math.max(-1.1 * f, look.dot(torso))), side = Math.min(f, Math.max(-f, look.dot(right)));
     look.copy(back).multiplyScalar(-f).addScaledVector(torso, up).addScaledVector(right, side).normalize();
     twist.copy(left).addScaledVector(back, 0.22 * swing - 0.3 * tk); // плечо идёт вперёд за рукой, которая бьёт
     basisQ(left, torso, hipsQ); basisQ(twist, torso, torsoQ);

@@ -256,13 +256,14 @@ float printDepth(vec2 q){
     float k = min(floor((q.y - foot) / .3) + float(j), 0.), K = floor(foot / .3 + .5) + k;
     vec2 c = vec2(sd * .16 + .09 * sin(K * 2.399 + sd), foot + k * .3 + .05 * sin(K * 1.713 + 2. * sd));
     float a = .55 * sin(K * 4.4 + sd);
-    vec2 l = mat2(cos(a), sin(a), -sin(a), cos(a)) * (q - c) / (vec2(.11, .12) * (1. + .28 * sin(K * 3.1)));
+    vec2 l = mat2(cos(a), sin(a), -sin(a), cos(a)) * (q - c) / (vec2(.08, .105) * (1. + .2 * sin(K * 3.1))); // ямка чуть шире ботинка: в 22–28 см шириной они читались воронками
     // Ступени разные: одна держит форму, другая осыпалась. Осыпавшаяся шире, мельче, с рваным краем,
     // и из-под неё вниз по склону уходит язык вывалившегося снега.
     float cr = .5 + .5 * sin(K * 5.7 + sd * 2.);
-    float e = pow(pow(abs(l.x), 3.) + pow(abs(l.y), 3.), .3333) + (vnoise(q * 40.) - .5) * mix(.18, .5, cr);
-    float step_ = smoothstep(1., mix(.78, .4, cr), e) * mix(.17, .095, cr) * (.7 + .3 * l.y);
-    float tongue = smoothstep(1.1, .3, abs(l.x) * (1. + max(-l.y - 1., 0.) * .8) + (vnoise(q * 23.) - .5) * .5) * smoothstep(-3.4, -1.3, l.y) * smoothstep(-.6, -1.1, l.y) * .04 * cr;
+    float e = pow(pow(abs(l.x), 3.) + pow(abs(l.y), 3.), .3333) + (vnoise(q * 16.) - .5) * mix(.1, .28, cr);
+    // Ямка чашей: от края плавно вглубь, без плоского дна и отвесных стенок (с ними след выглядел вырезанным формочкой).
+    float bowl = max(1. - e * e, 0.), step_ = bowl * sqrt(bowl) * mix(.13, .075, cr) * (.75 + .35 * l.y);
+    float tongue = smoothstep(1.1, .3, abs(l.x) * (1. + max(-l.y - 1., 0.) * .8) + (vnoise(q * 23.) - .5) * .5) * smoothstep(-3.4, -1.3, l.y) * smoothstep(-.6, -1.1, l.y) * .022 * cr;
     d = max(d, max(step_, tongue));
     }
     float ka = min(floor((q.y - axe) / .6 + .5), 0.);
@@ -344,8 +345,8 @@ void main(){
     vec3 vt = vec3(dot(V, Hx), dot(V, T), max(dot(V, N), .12));
     // Шаги луча начинаются со случайного сдвига, а точка удара уточняется между двумя последними шагами:
     // без этого дно ямки распадается на слои и выглядит штриховкой.
-    vec2 q = vec2(u, vS); float stp = .17 / vt.z / 16., t = stp * hash12(gl_FragCoord.xy), d0 = 0., d1 = 0.;
-    for (int i = 0; i < 16; i++){ d1 = printDepth(q - vt.xy * t) - t * vt.z; if (d1 <= 0.) break; d0 = d1; t += stp; }
+    vec2 q = vec2(u, vS); float stp = .14 / vt.z / 24., t = stp * .5, d0 = 0., d1 = 0.; // без случайного сдвига: он давал зерно по краю и дну следа
+    for (int i = 0; i < 24; i++){ d1 = printDepth(q - vt.xy * t) - t * vt.z; if (d1 <= 0.) break; d0 = d1; t += stp; }
     if (d1 <= 0. && d0 > 0.) t -= stp * -d1 / (d0 - d1);
     q -= vt.xy * t; pdep = printDepth(q);
     vec2 e = vec2(.012, 0.);
@@ -439,7 +440,7 @@ void main(){
   vec3 rockA = ra * rb * 5.5 * (.8 + .4 * vnoise(vec2(dot(vW, vec3(.22, .95, .2)) * .16 + m * 5., 3.7)));
 
   vec3 alb = mix(snowA, rockA, rv);
-  alb *= (1. - .12 * smoothstep(0., .1, pdep)) * (1. - .16 * track) * (1. - .2 * smoothstep(.15, .5, snowM) * smoothstep(.85, .5, snowM)); // последнее: тень у кромки снега на камне
+  alb *= mix(vec3(1.), vec3(.86, .92, 1.), smoothstep(0., .08, pdep)) * (1. - .16 * track) * (1. - .2 * smoothstep(.15, .5, snowM) * smoothstep(.85, .5, snowM)); // последнее: тень у кромки снега на камне
   // Стенка пласта синее и темнее к подножию, у верхней кромки светлая полоска; камень в щели и в тени пласта темнее.
   alb = mix(alb, alb * vec3(.5, .58, .72), smoothstep(0., .7, wall)) * (1. + .1 * step(.001, wall) * smoothstep(.25, 0., wall)) * mix(.8, 1., slab) * (1. - .6 * smoothstep(0., .8, pit));
   alb = mix(alb, alb * (.66 + .22 * vnoise(vec2(vW.x * 2.5, vW.z * .2))), scour * (1. - rock));
@@ -469,7 +470,7 @@ void main(){
   if (rv < .98) sh *= 1. - .38 * smoothstep(.12, .03, px) * smoothstep(0., .16, snowT(vW + Lt * .35, tw, 3.2) - hS - .01) * (1. - rv) * mix(.4, 1., uSpark);
   float ndl = dot(Nd, uSunDir);
   float dif = mix(max((ndl + .1) / 1.1, 0.), max(ndl, 0.), rv);
-  float micro = mix(.85 + .3 * hS, .35 + 1.3 * hR, rv) * (1. - .55 * smoothstep(0., .12, pdep)); // в трещинах, ямках и следах темнее
+  float micro = mix(.85 + .3 * hS, .35 + 1.3 * hR, rv) * (1. - .32 * smoothstep(0., .1, pdep)); // в трещинах, ямках и следах темнее
   // В пургу солнца нет, свет идёт с неба. Чтобы рельеф не сливался в ровное серое, небо светит сильнее сверху и со стороны солнца,
   // а складки и ложбины темнее: uSpark 0 в пургу, 1 в ясную погоду.
   float sky = .5 + .5 * dot(Nd, normalize(vec3(uSunDir.x * .6, 1., uSunDir.z * .6)));

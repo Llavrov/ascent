@@ -30,7 +30,13 @@ const G = {
   uPix: u(0.001), uDrift: u(0), uSpin: u(0), uWind2: u(new THREE.Vector2(WIND.x, WIND.z).normalize()),
   uWindOff: u(V()), uWindVel: u(V()), uCamVel: u(V()), uShutter: u(1 / 90), uFlakeA: u(1), uTan: u(0.3), uRes: u(new THREE.Vector2(1, 1)),
   uSunView: u(V()), uStorm: u(1), uCover: u(0.5), uCloudOff: u(new THREE.Vector2()),
+  tMirror: u(null), uMirrorM: u(new THREE.Matrix4()), uMirror: u(0), // отражение в очках: снимок сцены от лица, чем он снят и включён ли
 };
+// Отражение в очках. В ракурсах на лицо сцену снимает вторая камера: она стоит у лица и смотрит туда, куда уходит отражённый луч.
+// Линза очков в шейдере тела показывает этот снимок. В остальных ракурсах очки слишком малы, и снимок не делается.
+const mirror = new THREE.WebGLRenderTarget(512, 256, { type: THREE.HalfFloatType }), mirrorCam = new THREE.PerspectiveCamera(100, 2, 0.15, 6000);
+const blank = new THREE.DataTexture(new Uint8Array([120, 130, 140, 255]), 1, 1); blank.needsUpdate = true;
+G.tMirror.value = blank;
 
 const post = createPost(renderer);
 const climber = createClimber(G);
@@ -120,6 +126,8 @@ const SHOTS = [
   { name: 'Издали', fov: 40, dur: 13, far: true, f: (k, p, t) => { p.copy(F.pos).add(_v.set(210 - 30 * k, -40, 520)); t.copy(F.pos).add(_v.set(0, 150, 0)); } },
   { name: 'Дрон', fov: 13, dur: 12, far: true, f: (k, p, t) => { p.copy(F.pos).add(_v.set(150 - 20 * k, 60, 260)); t.copy(F.pos).add(_v.set(0, 18, 0)); } },
   // Наезд от общего плана к лицу. Он лезет лицом к склону, поэтому под конец камера идёт у самого снега со стороны склона (low: её нижний предел над снегом).
+  // Очки крупно: он поднимает голову к вершине, камера у самого снега выше по склону смотрит на него сверху. В линзе склон над ним, за спиной долина.
+  { name: 'Очки', fov: 15, dur: 9, low: 0.12, f: (k, p, t) => { t.copy(climber.skull).addScaledVector(climber.look, 0.08); p.copy(climber.skull).addScaledVector(F.fwd, 1.5 - 0.4 * k).addScaledVector(F.n, -0.16).addScaledVector(F.right, 0.28); } },
   { name: 'В лицо', fov: 34, dur: 9, low: 0.3, f: (k, p, t) => { const e = k * k * (3 - 2 * k); at(p, 6.5 - e * 4.8, 0.9 - e * 0.62, 1.6 - e * 0.5); at(t, 0.2, 0.8, 0).lerp(climber.skull, e); } },
 ];
 const cam = { zoom: 1, shot: 0, t: 0, auto: true, yaw: 0, pitch: 0, drag: false, cutNow: true, pos: V(), tgt: V(), prev: V(), shake: 0 };
@@ -238,6 +246,18 @@ function frame(now) {
   P.uWhiteCol.value.setRGB(...W.fog).multiplyScalar(1.15);
   P.uWhite.value = Math.max(white, fade);
   P.uExposure.value = W.exp; P.uDesat.value = W.desat; P.uTint.value.setRGB(...W.tint); P.uTime.value = time;
+  const shot = SHOTS[cam.shot].name, face = shot === 'Очки' || shot === 'В лицо';
+  climber.st.gazeUp = shot === 'Очки';
+  G.uMirror.value = 0; G.tMirror.value = blank; // пока снимаем отражение, линза его не читает: текстуру нельзя читать и писать разом
+  if (face) {
+    _v.subVectors(camera.position, climber.skull).normalize(); // от линзы к зрителю
+    _o.copy(climber.look).multiplyScalar(2 * climber.look.dot(_v)).sub(_v); // отражённый луч
+    mirrorCam.position.copy(climber.skull).addScaledVector(climber.look, 0.2);
+    mirrorCam.lookAt(_v.copy(mirrorCam.position).add(_o)); mirrorCam.updateMatrixWorld();
+    G.uMirrorM.value.multiplyMatrices(mirrorCam.projectionMatrix, mirrorCam.matrixWorldInverse);
+    renderer.setRenderTarget(mirror); renderer.render(scene, mirrorCam); renderer.setRenderTarget(null);
+    G.uMirror.value = 1; G.tMirror.value = mirror.texture;
+  }
   post.render(scene, camera);
   requestAnimationFrame(frame);
 }

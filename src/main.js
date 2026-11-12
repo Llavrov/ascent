@@ -7,6 +7,11 @@ import { createClimber } from './climber.js';
 import { createPost } from './post.js';
 import { createAudio } from './audio.js';
 
+// Заставка висит, пока не загрузятся все модели и текстуры; полоска показывает, сколько файлов уже пришло.
+const loader = document.getElementById('loader'), bar = loader.querySelector('b');
+THREE.DefaultLoadingManager.onProgress = (_, done, total) => { bar.style.width = (100 * done) / total + '%'; };
+THREE.DefaultLoadingManager.onLoad = () => { loader.classList.add('done'); loader.addEventListener('transitionend', (e) => e.target === loader && loader.remove()); };
+
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 const camera = new THREE.PerspectiveCamera(36, 1, 0.2, 20000);

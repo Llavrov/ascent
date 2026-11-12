@@ -5,7 +5,7 @@ import { height, routeX, normalAt, sAt, zAt, ground, START_Z } from './world.js'
 import { COMMON } from './glsl.js';
 import { helmet, fitted, rack, mitten, axe } from './gear.js';
 
-const MOVE = 0.44, SPEED = 0.25, STRIDE = 0.6; // секунд на перенос конечности, м/с, метров пути на один цикл шагов
+const MOVE = 0.56, SPEED = 0.15, STRIDE = 0.6; // секунд на перенос конечности, м/с, метров пути на один цикл шагов. На 0.25 м/с он бежал на четвереньках: на высоте в пургу так не ходят
 // Порядок переноса за цикл: ледоруб, две ноги, второй ледоруб, снова две ноги. Ледоруб уходит на 0.6 м, нога шагает по 0.3:
 // шаг в 0.6 длиннее, чем пускает нога, таз утягивало к дальней ступне, и вторая нога задиралась коленом к груди и вбок.
 const SEQ = [0, 1, 3, 2, 1, 3];
@@ -492,15 +492,17 @@ export function createClimber(G) {
 
   // порядок шагов: правая рука, левая нога, левая рука, правая нога
   const LIMBS = [1, -1, -1, 1].map((s, i) => (i % 2 === 0
-    ? { hand: true, s, along: 0.83, lat: 0.24, lift: 0.22, tool: kit(axeGeo), sh: 0, fist: kit(mitten(s)), fd: V() }
+    ? { hand: true, s, along: 0.9, lat: 0.24, lift: 0.22, tool: kit(axeGeo), sh: 0, fist: kit(mitten(s)), fd: V() }
     : { hand: false, s, along: -0.56, lat: 0.16, lift: 0.12 })); // ступня встаёт на 0.4 м ниже таза и уходит до 0.75
   LIMBS.forEach((L, i) => { L.from = V(); L.to = V(); L.cur = V(); L.j0 = V(); L.j1 = V(); L.t0 = -9; L.dur = MOVE; L.k = 1; L.u = 1; L.tp = V(); L.td = V(); L.tq = Q(); L.tset = false; L.st = L.hand ? STRIDE : STRIDE / 2; L.phase = (SEQ.indexOf(i) * STRIDE) / 6 + L.along + L.st * 0.55; });
 
   // Голова вырезана из подробной версии того же человека (tools/extract-head.mjs) и ездит за шеей как жёсткая деталь.
+  const NEW = !new URLSearchParams(location.search).has('old'); // адрес с ?old показывает прежнее тело, для сравнения
   const face = new THREE.Group(), squint = { value: 0.45 }, grim = { value: 0.35 };
   group.add(face);
   face.add(kit(helm));
-  fetch('/head/head.json').then((r) => r.json()).then(({ parts, center }) => {
+  face.visible = !NEW; // у нового тела голова своя: очки и балаклава, прежнюю даже не грузим
+  if (!NEW) fetch('/head/head.json').then((r) => r.json()).then(({ parts, center }) => {
     const arr = (b64, T) => new T(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer);
     const ep = arr(parts.eyes.pos, Float32Array), eye = V();
     let en = 0;
@@ -532,7 +534,9 @@ export function createClimber(G) {
 
   // ---------- тело: модель со скелетом, кости ставит наша кинематика ----------
   let rig = null;
-  const NEW = !new URLSearchParams(location.search).has('old'); // адрес с ?old показывает прежнее тело, для сравнения
+  // Как далеко таз от склона и насколько корпус отклонён от него. Прежнее толстое тело держалось в 52 см и отклонялось назад:
+  // новому стройному так держаться незачем, а руки при этом тянулись к ледорубам вниз и к склону и растягивали рукава на 10–18%.
+  const OFF = NEW ? 0.44 : 0.52, TILT = NEW ? 0.04 : 0.2;
   new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath('/draco/')).load(NEW ? '/models/climber2.glb' : '/models/climber.glb', (file) => {
     const root = NEW ? adopt(file.scene) : file.scene;
     root.updateMatrixWorld(true);
@@ -709,7 +713,7 @@ export function createClimber(G) {
       const g = src.geometry.clone().applyMatrix4(src.matrixWorld).rotateY(Math.PI); // карманом с лопатой назад, спинкой к спине
       g.computeBoundingBox();
       const bb = g.boundingBox, k = PACK_H / (bb.max.y - bb.min.y), lean = Math.atan2(fit.zUp - fit.zBack, 0.29); // спинка рюкзака ложится по спине от поясницы до лопаток
-      g.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -bb.max.z).scale(k, k, k).rotateX(lean).translate(0, PACK_Y, fit.zBack - 0.005);
+      g.translate(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -bb.max.z).scale(k, k, k).rotateX(lean).translate(0, PACK_Y, fit.zBack + 0.05); // на 5 см в спину: у рюкзака сзади выступает бухта верёвки, сама спинка глубже
       const mat = litMaterial(G, [1, 1, 1], { USE_MAP: '', NMAP: '' }, 0.1);
       mat.uniforms.map = { value: src.material.map }; mat.uniforms.nmap = { value: src.material.normalMap };
       const m = new THREE.Mesh(g, mat); m.frustumCulled = false;
@@ -733,7 +737,6 @@ export function createClimber(G) {
       soft.bind(host.skeleton, host.bindMatrix);
     }
     rig.rackAt = fit.rackAt;
-    face.visible = !NEW; // у нового тела голова своя: очки и балаклава
     group.add(root);
   });
   // Запас длины: если до опоры не хватает нескольких сантиметров, рука или нога вытягивается, не больше чем на 18%.
@@ -899,8 +902,8 @@ export function createClimber(G) {
 
     // корпус наклонён к склону, грудью к нему; в обвал прижимается ближе, у кола доворачивается к нему
     st.out = (st.out ?? 0) + ([0, -0.07, 0.07][g] - (st.out ?? 0)) * (1 - Math.exp(-dt * 1.5)); // на льду жмётся к стене, на скале отходит от неё
-    hips.copy(base).addScaledVector(n, 0.52 + st.out - 0.14 * bk + 0.012 * Math.sin(st.tg * 2.4) + (0.2 * tum - 0.06) * fk + jerk).addScaledVector(fwd, 0.03 * Math.sin((st.s / STRIDE) * Math.PI * 4) + 0.05 * push).addScaledVector(right, 0.05 * lean).addScaledVector(n, -0.04 * reach + 0.07 * push); // дышит; таз от склона, когда ставит ноги, и к склону, когда бьёт
-    torso.copy(fwd).multiplyScalar(0.95).addScaledVector(n, 0.2 - 0.14 * bk - 0.15 * fk * (1 - tum)).addScaledVector(right, 0.1 * fk * Math.sin(st.tg * 5)).normalize(); // в срыве лежит на животе головой вверх по склону
+    hips.copy(base).addScaledVector(n, OFF + st.out - 0.14 * bk + 0.012 * Math.sin(st.tg * 2.4) + (0.2 * tum - 0.06) * fk + jerk).addScaledVector(fwd, 0.03 * Math.sin((st.s / STRIDE) * Math.PI * 4) + 0.05 * push).addScaledVector(right, 0.05 * lean).addScaledVector(n, -0.04 * reach + 0.07 * push); // дышит; таз от склона, когда ставит ноги, и к склону, когда бьёт
+    torso.copy(fwd).multiplyScalar(0.95).addScaledVector(n, TILT - 0.14 * bk - 0.15 * fk * (1 - tum)).addScaledVector(right, 0.1 * fk * Math.sin(st.tg * 5)).normalize(); // в срыве лежит на животе головой вверх по склону
     back.crossVectors(right, torso).normalize();
     if (roll) { _a.copy(right); right.multiplyScalar(Math.cos(roll)).addScaledVector(back, Math.sin(roll)); back.multiplyScalar(Math.cos(roll)).addScaledVector(_a, -Math.sin(roll)); left.copy(right).negate(); } // катится через бок
     surf(st.s + 0.75, 0.55, pk); // сюда встанет следующий кол
@@ -1026,7 +1029,10 @@ export function createClimber(G) {
           }
           // Локоть смотрит наружу и от склона, чуть вниз. Раньше «вниз» было главным: у руки, висящей на передышке, это почти вдоль самой руки,
           // сторона локтя становилась случайной, и предплечье за один кадр перекидывалось на 90 градусов.
-          _q.copy(right).multiplyScalar(0.5 * L.s).addScaledVector(n, 0.6).addScaledVector(fwd, -0.25);
+          // Когда кисть выше плеча (тянется к ледорубу или подтягивается на нём), локоть уходит вниз и наружу, почти в плоскости склона:
+          // торчащий от склона локоть на подтягивании выглядел заломленной рукой.
+          const upw = Math.min(1, Math.max(0, (_b.subVectors(_t, _s).normalize().dot(fwd) + 0.2) / 0.7)), uw = upw * upw * (3 - 2 * upw);
+          _q.copy(right).multiplyScalar(0.5 * L.s).addScaledVector(n, 0.6 - 0.45 * uw).addScaledVector(fwd, -0.25 - 0.55 * uw);
           const k = stretch(R, _s, _t);
           ik(_s, _t, R.l1 * k, R.l2 * k, _q, _j);
           // Локоть не проходит сквозь корпус: если он ближе 20 см к оси тела, сгиб доворачивается наружу.

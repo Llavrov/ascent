@@ -20,10 +20,20 @@
   button b { font-weight: 500; color: #fff; }
   button:active { color: #fff; }
   button:focus-visible { outline: 1px solid rgba(255, 255, 255, .8); outline-offset: -8px; }
+  /* Заставка закрывает сцену, пока грузятся модели: иначе альпинист собирается на глазах по частям. */
+  #loader {
+    position: fixed; inset: 0; z-index: 2; display: grid; place-items: center; background: #70767d; color: #fff;
+    font: 500 20px/1.3 system-ui, -apple-system, sans-serif; transition: opacity .5s;
+  }
+  #loader.done { opacity: 0; pointer-events: none; }
+  #loader p { margin: 0 0 14px; }
+  #loader i { display: block; height: 2px; background: rgba(255, 255, 255, .25); }
+  #loader b { display: block; width: 0; height: 100%; background: #fff; transition: width .2s; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="loader"><div><p>Hi, it's Lev Lavrov</p><i><b></b></i></div></div>
 <nav>
   <button id="weather">Погода <b>Авто</b></button>
   <button id="camera">Камера <b>Авто</b></button>

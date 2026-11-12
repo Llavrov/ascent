@@ -4,6 +4,7 @@
 export function createAudio() {
   let ctx = null, out, src, air, side, wet, hitBus, ringBus, voiceBus, rev, white, pink, wind, breath, on = false, lastKnock = 0;
   const voice = {}, said = {}; // реплики: готовые дубли по ситуациям; когда и какой дубль звучал последним
+  let talk = null, talkEnd = 0; // что звучит сейчас и до какого времени: две реплики разом не говорим
   const rnd = (a, b) => a + Math.random() * (b - a);
   // d: время до полной тишины; на слух звук примерно втрое короче
   const env = (g, t, peak, a, d) => { g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + a); g.gain.exponentialRampToValueAtTime(0.0001, t + a + d); };
@@ -167,8 +168,11 @@ export function createAudio() {
       said[kind] = k;
       list[k].then((buf) => {
         if (!buf || !on) return;
-        const s = ctx.createBufferSource(), g = ctx.createGain();
-        s.buffer = buf; s.playbackRate.value = rnd(0.97, 1.03); g.gain.value = vol; s.connect(g).connect(voiceBus); s.start(); // чуть разная высота: одна и та же реплика не звучит записью
+        // Голос один: пока звучит реплика, новая молчит. Срочное (срыв, рывок верёвки, обвал: gap 0) обрывает текущую и звучит само.
+        if (ctx.currentTime < talkEnd) { if (gap > 0) return; talk.stop(); }
+        const s = ctx.createBufferSource(), g = ctx.createGain(), rate = rnd(0.97, 1.03);
+        s.buffer = buf; s.playbackRate.value = rate; g.gain.value = vol; s.connect(g).connect(voiceBus); s.start(); // чуть разная высота: одна и та же реплика не звучит записью
+        talk = s; talkEnd = ctx.currentTime + buf.duration / rate;
       });
     },
     knock() { // камень ударился о склон; не чаще двадцати раз в секунду

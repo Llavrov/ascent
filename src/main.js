@@ -122,9 +122,9 @@ const at = (out, f, n, r) => out.copy(F.pos).addScaledVector(F.fwd, f).addScaled
 const SHOTS = [
   { name: 'Следом', fov: 36, dur: 11, f: (k, p, t) => { at(p, -5.5 + k, 2.2, 4.5); at(t, 2.5, 0.8, -0.5); } },
   { name: 'Сбоку', fov: 30, dur: 12, f: (k, p, t) => { at(p, -0.5, 1.6, 12 - k * 1.5); at(t, 0.6, 0.5, 0); } },
-  { name: 'Сверху', fov: 46, dur: 10, f: (k, p, t) => { at(p, 7 - k, 5, -2.5); at(t, -14, -1, 1); } },
+  { name: 'Сверху', fov: 46, dur: 10, f: (k, p, t) => { const w = Math.min(1, camera.aspect * 0.85); at(p, 7 - k, 5, -2.5 * w); at(t, -14, -1, w); } }, // w: в вертикали кадр уже, при том же сдвиге вбок альпинист уезжал за левый край
   { name: 'Издали', fov: 40, dur: 13, far: true, f: (k, p, t) => { p.copy(F.pos).add(_v.set(210 - 30 * k, -40, 520)); t.copy(F.pos).add(_v.set(0, 150, 0)); } },
-  { name: 'Дрон', fov: 13, dur: 12, far: true, f: (k, p, t) => { p.copy(F.pos).add(_v.set(150 - 20 * k, 60, 260)); t.copy(F.pos).add(_v.set(0, 18, 0)); } },
+  { name: 'Дрон', fov: 13, dur: 12, far: true, f: (k, p, t) => { const d = camera.aspect < 1 ? 0.6 : 1; p.copy(F.pos).add(_v.set(150 - 20 * k, 60, 260).multiplyScalar(d)); t.copy(F.pos).add(_v.set(0, 18 * d, 0)); } }, // d: в вертикали ближе, иначе он точка в тридцать пикселей
   // Наезд от общего плана к лицу. Он лезет лицом к склону, поэтому под конец камера идёт у самого снега со стороны склона (low: её нижний предел над снегом).
   // Очки крупно: он поднимает голову к вершине, камера у самого снега выше по склону смотрит на него сверху. В линзе склон над ним, за спиной долина.
   { name: 'Очки', fov: 15, dur: 9, low: 0.12, f: (k, p, t) => { t.copy(climber.skull).addScaledVector(climber.look, 0.08); p.copy(climber.skull).addScaledVector(F.fwd, 1.5 - 0.4 * k).addScaledVector(F.n, -0.16).addScaledVector(F.right, 0.28); } },
@@ -164,7 +164,9 @@ function updateCamera(dt, t) {
 
 // ---------- кадр ----------
 let last = performance.now(), time = 0, fade = 1, drift = 0, plume = 0, strikes = 0, breath = 0;
-function frame(now) {
+let held = false; // идёт съёмка ролика (tools/shoot.js): кадры заказывает она, свой цикл стоит
+function frame(now, mine) {
+  if (held && !mine) return;
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now; time += dt;
   mixWeather(dt, time);
@@ -254,6 +256,7 @@ function frame(now) {
   const shot = SHOTS[cam.shot].name, face = shot === 'Очки' || shot === 'В лицо';
   climber.st.gazeUp = shot === 'Очки';
   G.uMirror.value = 0; G.tMirror.value = blank; // пока снимаем отражение, линза его не читает: текстуру нельзя читать и писать разом
+  if (shot === 'Очки') climber.glow.visible = false; // на линзе отражение склона, ореол фонаря его засвечивал (renderShadow в следующем кадре включит ореол обратно)
   if (face) {
     _v.subVectors(camera.position, climber.skull).normalize(); // от линзы к зрителю
     _o.copy(climber.look).multiplyScalar(2 * climber.look.dot(_v)).sub(_v); // отражённый луч
@@ -264,7 +267,7 @@ function frame(now) {
     G.uMirror.value = 1; G.tMirror.value = mirror.texture;
   }
   post.render(scene, camera);
-  requestAnimationFrame(frame);
+  if (!held) requestAnimationFrame(frame);
 }
 
 function resize() {
@@ -317,5 +320,7 @@ $('camera').onclick = () => {
 $('avalanche').onclick = avalanche;
 $('sound').onclick = () => { $('sound').lastElementChild.textContent = audio.toggle() ? 'Вкл' : 'Выкл'; };
 
-window.ascent = { G, climber, cam, weather, ava, cut, avalanche, post, renderer, scene, camera, SHOTS, F, puffs, debris, sparks }; // для отладки из консоли
+window.ascent = { G, climber, cam, weather, ava, cut, avalanche, post, renderer, scene, camera, SHOTS, F, puffs, debris, sparks, audio, shoot: (dt) => { held = true; frame(last + dt * 1000, true); } }; // для отладки из консоли; shoot: один кадр съёмки ролика
 requestAnimationFrame((t) => { last = t; frame(t); });
+// Съёмка ролика из командной строки (sh tools/shoot.sh): страница с ?shoot сама снимает себя. Только на dev-сервере, в сборку не попадает.
+if (import.meta.env.DEV && new URLSearchParams(location.search).has('shoot')) import(/* @vite-ignore */ `${location.origin}/tools/shoot.js`).then((m) => m.auto());

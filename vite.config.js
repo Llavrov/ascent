@@ -1,9 +1,20 @@
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
+import { mkdir } from 'node:fs/promises';
 import { add, remove, index } from './tools/voice.mjs';
 
 // Запись реплик работает только в dev: страница record.html шлёт сюда дубль, сервер чистит его и кладёт в public/voice.
 const voice = () => ({
   name: 'voice',
   configureServer(server) {
+    // Съёмка ролика (только dev): tools/shoot.js шлёт сюда кадры и звук, сервер кладёт их в shots/reel. В сборку и в репозиторий shots/ не попадает.
+    server.middlewares.use('/api/shot', async (req, res) => {
+      const name = new URL(req.url, 'http://x').searchParams.get('name') ?? '';
+      if (req.method !== 'POST' || !/^[a-z0-9-]{1,40}\.(jpg|wav)$/.test(name)) { res.statusCode = 400; return res.end(); }
+      await mkdir(new URL('./shots/reel/', import.meta.url), { recursive: true });
+      await pipeline(req, createWriteStream(new URL('./shots/reel/' + name, import.meta.url)));
+      res.end('ok');
+    });
     server.middlewares.use('/api/voice', async (req, res) => {
       const q = new URL(req.url, 'http://x').searchParams;
       const send = (code, body) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(body)); };

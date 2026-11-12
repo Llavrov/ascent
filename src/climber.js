@@ -1197,6 +1197,8 @@ export function createClimber(G) {
     glow.scale.setScalar(Math.min(0.2, 0.05 + dist * 0.04) + dist * 0.0028); // вблизи ореол меньше, иначе он закрывает лицо
     const toCam = G.uLampDir.value.dot(_a) / dist; // со спины ореол слабый: фонарь светит вперёд
     glowI.value = G.uLampI.value * (0.15 * THREE.MathUtils.smoothstep(toCam, -0.1, 0.3) + 0.7 * Math.max(0, toCam) ** 3);
+    // Днём лампочка гаснет и прячется: её ореол закрывал очки с отражением, а сама она на новой голове висит перед линзой (место осталось от каски старой модели).
+    const lf = Math.min(1, G.uLampI.value / 2.6); lamp.material.color.setRGB(8, 6.5, 4).multiplyScalar(lf * lf); lamp.visible = lf > 0.4;
     G.uClimber.value.copy(hips);
     if (tf > 0) { fwd.copy(fwd0); right.copy(right0); left.copy(right).negate(); }
   }

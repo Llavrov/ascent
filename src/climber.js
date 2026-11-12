@@ -238,7 +238,13 @@ void main(){
   #ifdef BUFF
     ndl = max((dot(N, uSunDir) + .4) / 1.4, 0.); // кожа пропускает свет: тень на лице мягкая, без пластика
   #endif
+  #ifdef SNOW
+    ndl = max((dot(N, uSunDir) + .6) / 1.6, 0.); // ком снега просвечивает: теневой бок серо-голубой, а не чёрный
+  #endif
   vec3 col = alb * (uSunCol * ndl * sh * (1. - .3 * seam) + uAmbCol * (.55 + .45 * N.y));
+  #ifdef SNOW
+    col += alb * (uSunCol * .2 * sh + uAmbCol * .9); // свет, отражённый снегом вокруг
+  #endif
   col += dust * uSunCol * sh * .5 * pow(max(dot(N, normalize(uSunDir + V)), 0.), 40.); // лёд блестит
   #ifdef BUFF
     float tn = dot(N, uSunDir);

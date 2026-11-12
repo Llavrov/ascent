@@ -209,7 +209,7 @@ function frame(now, mine) {
   if (climber.st.slump) { // след обрушается: по фронту идёт снежная пыль и катятся комья
     const p = climber.st.slump;
     puffs.spawn({ x: p.x, y: 0.1, z: p.z, vx: 0, vy: 0.5, vz: 1, size: 0.14, grow: 0.9, life: 0.5 + Math.random() * 0.4, alpha: 0.4, ground: true });
-    if (Math.random() < 0.06) debris.chunk(p);
+    if (Math.random() < 0.15) debris.chunk(p, 2.2); // при обрушении комья крупнее, чем из-под ноги
   }
   for (const h of climber.st.hits) { // ледоруб или кошка вошли в склон: в снегу облачко, во льду брызги осколков, о камень искры и пыль
     audio.hit(h.kind, h.hand); if (h.hand && Math.random() < 0.3) audio.say('effort', 2.5, 0.7); // кряхтит не на каждом ударе

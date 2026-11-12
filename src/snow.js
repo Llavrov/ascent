@@ -142,8 +142,14 @@ export function createDebris(G, puffs, onBounce, max = 110) {
     p.setXYZ(i, x * k, y * k * 0.8, z * k);
   }
   geo.computeVertexNormals();
-  const mesh = new THREE.InstancedMesh(geo, litMaterial(G, [0.13, 0.12, 0.11]), max);
-  mesh.frustumCulled = false; mesh.count = 0;
+  const rocks = new THREE.InstancedMesh(geo, litMaterial(G, [0.13, 0.12, 0.11]), max);
+  // Комья снега рисуются отдельно: округлые и со снежным светом. На мятой каменной сетке и с каменным светом они выходили тёмными колючими звёздочками.
+  const ball = new THREE.SphereGeometry(1, 10, 8), b = ball.attributes.position;
+  for (let i = 0; i < b.count; i++) { const x = b.getX(i), y = b.getY(i), z = b.getZ(i), k = 0.88 + 0.14 * Math.sin(x * 3.1 + y * 2.3) * Math.sin(y * 2.7 + z * 3.3); b.setXYZ(i, x * k, y * k, z * k); }
+  ball.computeVertexNormals();
+  const lumps = new THREE.InstancedMesh(ball, litMaterial(G, [0.86, 0.9, 0.96], { SNOW: '' }), max);
+  const mesh = new THREE.Group().add(rocks, lumps);
+  rocks.frustumCulled = lumps.frustumCulled = false; rocks.count = lumps.count = 0;
   const list = [], m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), c = new THREE.Color();
   return {
     mesh,
@@ -157,9 +163,9 @@ export function createDebris(G, puffs, onBounce, max = 110) {
       });
     },
     // комок снега, выбитый ногой или ледорубом: катится вниз и рассыпается за пару секунд
-    chunk(p) {
-      if (list.length < max) list.push({ x: p.x + (Math.random() - 0.5) * 0.15, z: p.z + 0.08, lift: 0.04, vl: 0.4 + Math.random(), vx: Math.random() - 0.5, vz: 0.4 + Math.random() * 1.5,
-        size: 0.015 + Math.random() * 0.03, age: 0, life: 1.5 + Math.random() * 1.5, ang: 0, spin: 12, axis: new THREE.Vector3(1, 0, 0), col: [0.8, 0.84, 0.9], sq: [1, 0.8, 1] });
+    chunk(p, k = 1) { // k: во сколько раз крупнее обычного
+      if (list.length < max) list.push({ x: p.x + (Math.random() - 0.5) * 0.15, z: p.z + 0.08, lift: 0.04, vl: 0.4 + Math.random(), vx: Math.random() - 0.5, vz: 0.4 + Math.random() * 1.5, snow: true,
+        size: (0.015 + Math.random() * 0.03) * k, age: 0, life: 1.5 + Math.random() * 1.5, ang: 0, spin: 12, axis: new THREE.Vector3(1, 0, 0), sq: [1, 0.8, 1] });
     },
     update(dt) {
       for (let i = list.length - 1; i >= 0; i--) {
@@ -175,13 +181,14 @@ export function createDebris(G, puffs, onBounce, max = 110) {
           if (r.size > 0.06) puffs.spawn({ x: r.x, y: 0.4, z: r.z, vx: 0, vy: 1.5, vz: r.vz * 0.4, size: 0.5 + r.size * 1.5, grow: 2.5, life: 1.2 + Math.random(), alpha: 0.5, ground: true });
         }
       }
-      list.forEach((r, i) => {
-        mesh.setMatrixAt(i, m.compose(v.set(r.x, height(r.x, r.z, false) + r.lift + r.size * 0.5, r.z), q.setFromAxisAngle(r.axis, r.ang), sc.fromArray(r.sq).multiplyScalar(r.age < 0 ? 0 : r.size)));
-        mesh.setColorAt(i, c.setRGB(...r.col));
-      });
-      mesh.count = list.length;
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      rocks.count = lumps.count = 0;
+      for (const r of list) {
+        const to = r.snow ? lumps : rocks, i = to.count++, fade = r.snow ? Math.min(1, (r.life - r.age) / 0.4) : 1; // ком под конец рассыпается, а не исчезает разом
+        to.setMatrixAt(i, m.compose(v.set(r.x, height(r.x, r.z, false) + r.lift + r.size * 0.5, r.z), q.setFromAxisAngle(r.axis, r.ang), sc.fromArray(r.sq).multiplyScalar(r.age < 0 ? 0 : r.size * fade)));
+        if (!r.snow) rocks.setColorAt(i, c.setRGB(...r.col));
+      }
+      rocks.instanceMatrix.needsUpdate = lumps.instanceMatrix.needsUpdate = true;
+      if (rocks.instanceColor) rocks.instanceColor.needsUpdate = true;
     },
   };
 }

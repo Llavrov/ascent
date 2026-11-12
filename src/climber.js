@@ -537,6 +537,10 @@ export function createClimber(G) {
   // Как далеко таз от склона и насколько корпус отклонён от него. Прежнее толстое тело держалось в 52 см и отклонялось назад:
   // новому стройному так держаться незачем, а руки при этом тянулись к ледорубам вниз и к склону и растягивали рукава на 10–18%.
   const OFF = NEW ? 0.44 : 0.52, TILT = NEW ? 0.04 : 0.2;
+  // Точка, которой ботинок встаёт на склон: на сколько она впереди лодыжки и ниже её. У прежней модели это был самый носок.
+  // У ботинка Meshy носок короче (14 см от лодыжки), и с прежними числами он не доставал до снега: подошва висела в 10 см над склоном.
+  // Теперь опора на подошве в 3 см впереди лодыжки: передняя треть ботинка и зубья кошки уходят в снег, как при выбивании ступени.
+  const TOE = NEW ? 0.03 : 0.17, SOLE = NEW ? 0.085 : 0.07;
   new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath('/draco/')).load(NEW ? '/models/climber2.glb' : '/models/climber.glb', (file) => {
     const root = NEW ? adopt(file.scene) : file.scene;
     root.updateMatrixWorld(true);
@@ -981,7 +985,7 @@ export function createClimber(G) {
           _t.addScaledVector(L.fd, -HOLD);
           _s.copy(R.off).applyQuaternion(torsoQ).add(torsoPos).add(_h);
         } else {
-          _t.copy(L.cur).addScaledVector(toe, -0.17).addScaledVector(Y, 0.07);
+          _t.copy(L.cur).addScaledVector(toe, -TOE).addScaledVector(Y, SOLE);
           _s.copy(R.off).applyQuaternion(hipsQ).add(hips).add(_h);
         }
         const len = _d.subVectors(_t, _s).length(), far = (R.l1 + R.l2) * 0.96, near = (R.l1 + R.l2) * 0.5;
@@ -1083,7 +1087,7 @@ export function createClimber(G) {
         const hold = 1 - THREE.MathUtils.smoothstep(_a.distanceTo(_e), 0.03, 0.12);
         L.fist.position.copy(_e).lerp(_a, hold); L.fist.quaternion.copy(_fq).slerp(L.tool.quaternion, hold);
       } else if (R) {
-        _t.copy(L.cur).addScaledVector(toe, -0.17).addScaledVector(Y, 0.07); // щиколотка позади носка, вбитого в склон
+        _t.copy(L.cur).addScaledVector(toe, -TOE).addScaledVector(Y, SOLE); // щиколотка позади носка, вбитого в склон
         _s.copy(R.off).applyQuaternion(hipsQ).add(hips);
         if (fk > 0.05) _t.lerp(flail.copy(_s).addScaledVector(torso, -0.7).addScaledVector(right, 0.25 * L.s).addScaledVector(n, 0.12 + 0.1 * Math.sin(st.tg * 8 + i)).lerp(_b.copy(_s).addScaledVector(torso, -0.72).addScaledVector(right, 0.3 * L.s).addScaledVector(back, -0.14 * Math.sin(st.tg * 9 + i)), tum), fk); // катится: ноги врозь и болтаются; лёг: лежат на склоне
         if (fk > 0.05) _t.y = Math.max(_t.y, height(_t.x, _t.z) + 0.12); // и нога тоже
@@ -1094,11 +1098,11 @@ export function createClimber(G) {
         const room = L.room = (_j.y - height(_j.x, _j.z)) * n.y; // запоминаем: в следующем кадре от тесноты отойдёт таз
         if (room < 0.14) { _q.addScaledVector(right, L.s * Math.min(0.35, (0.14 - room) * 6)); ik(_s, _t, R.l1 * k, R.l2 * k, _q, _j); } // колену тесно: чуть наружу, не дальше, чем пускает лодыжка
         // Лодыжка: ботинок доворачивается за голенью, а носок остаётся в своей ступени. Поворот сдвигает лодыжку, поэтому ногу решаем второй раз.
-        _toe.copy(_t).addScaledVector(toe, 0.17).addScaledVector(Y, -0.07);
+        _toe.copy(_t).addScaledVector(toe, TOE).addScaledVector(Y, -SOLE);
         for (let pass = 0; pass < 2; pass++) {
           ankle(toe, left, _a.subVectors(_j, _t).normalize(), _b.copy(_hinge).normalize(), _bf, _bu);
           if (pass) break;
-          _t.copy(_toe).addScaledVector(_bf, -0.17).addScaledVector(_bu, 0.07);
+          _t.copy(_toe).addScaledVector(_bf, -TOE).addScaledVector(_bu, SOLE);
           k = stretch(R, _s, _t);
           ik(_s, _t, R.l1 * k, R.l2 * k, _q, _j);
         }

@@ -392,7 +392,15 @@ function adopt(scene) {
   let src; scene.traverse((o) => { if (o.isSkinnedMesh) src = o; });
   const names = Object.keys(OURS), at = (n) => names.indexOf(n), id = (b) => b.name.replace(/^mixamorig:?/, ''), sb = src.skeleton.bones;
   const own = new Map(names.map((n, k) => [OURS[n][0], k]));
-  const slot = sb.map((b) => { for (let o = b; o; o = o.parent) if (own.has(id(o))) return own.get(id(o)); return 0; });
+  // Рукавица у Meshy висит на своей кости от предплечья, а не на кисти: отдаём её кисти, иначе она остаётся торчать из рукава,
+  // когда кисть спрятана (рукоять держит наш кулак).
+  const slot = sb.map((b) => {
+    for (let o = b; o; o = o.parent) {
+      if (/^Bone_/.test(o.name) && /ForeArm$/.test(id(o.parent))) return own.get(id(o.parent).replace('ForeArm', 'Hand'));
+      if (own.has(id(o))) return own.get(id(o));
+    }
+    return 0;
+  });
   const J = names.map((n) => sb.find((b) => id(b) === OURS[n][0]).getWorldPosition(V())), Pn = names.map((n) => V().fromArray(OURS[n][2])); // суставы Meshy в A-позе и наши
   // Куда едут точки каждой кости. Рука и нога: сустав встаёт на наш, кость тянется до нашей длины (K вдоль U). Нога сразу поворачивается вниз (R):
   // там всего несколько градусов. Рука пока остаётся в A-позе: её опускает загрузчик тем же способом, каким плечо гнётся на ходу,
@@ -1007,7 +1015,7 @@ export function createClimber(G) {
           if (loose) _t.lerp(flail.copy(_s).addScaledVector(fwd, 0.12).addScaledVector(n, -0.32).addScaledVector(right, 0.04 * L.s).lerp(_b.copy(_s).addScaledVector(torso, 0.1 + 0.08 * Math.sin(st.tg * 11 + i)).addScaledVector(right, 0.4 * L.s).addScaledVector(back, -0.08), tum), fk);
           // на передышке левая рука отпускает ледоруб, свисает и встряхивается
           L.sh += ((i === 2 && st.rest > 0.4 ? 1 : 0) - L.sh) * (1 - Math.exp(-dt * 3.5)); // опускает руку не рывком
-          if (L.sh > 0.01) _t.lerp(_b.copy(_s).addScaledVector(fwd, -0.42).addScaledVector(n, 0.1).addScaledVector(right, -0.12 + 0.03 * Math.sin(st.tg * 14)), L.sh);
+          if (L.sh > 0.01) _t.lerp(_b.copy(_s).addScaledVector(fwd, -0.53).addScaledVector(n, 0.06).addScaledVector(right, 0.04 * L.s + 0.03 * Math.sin(st.tg * 14)), L.sh); // почти прямая, вдоль тела: согнутая и отведённая на 12 см читалась оттопыренным локтем
           if (loose) _t.y = Math.max(_t.y, height(_t.x, _t.z) + 0.1); // в срыве рука не уходит под снег
           _t.addScaledVector(L.fd, -HOLD); // запястье позади кулака: по тому, как предплечье лежало кадр назад
           // На замахе и когда рука свободна, кисть не подходит к плечу ближе половины длины руки: обходит его спереди и чуть снаружи.
